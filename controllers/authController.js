@@ -1,47 +1,51 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+const { body, validationResult } = require('express-validator');
+
 const router = express.Router();
+const User = require('../models/User'); // Assuming User model is defined
 
-// Mock user data
-let users = [];
-let currentUser = null;
+// User registration endpoint
+router.post('/register', [
+    body('username').isString().isLength({ min: 3 }),
+    body('password').isString().isLength({ min: 6 })
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
 
-// User Registration
-router.post('/register', (req, res) => {
     const { username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).send('Username and password are required.');
-    }
-    const userExists = users.find(user => user.username === username);
-    if (userExists) {
-        return res.status(400).send('User already exists.');
-    }
-    users.push({ username, password });
-    res.status(201).send('User registered successfully.');
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ username, password: hashedPassword });
+    await user.save();
+    res.status(201).send('User registered successfully');
 });
 
-// User Login
-router.post('/login', (req, res) => {
+// User login endpoint
+router.post('/login', [
+    body('username').isString(),
+    body('password').isString()
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
     const { username, password } = req.body;
-    const user = users.find(user => user.username === username && user.password === password);
+    const user = await User.findOne({ username });
     if (!user) {
-        return res.status(401).send('Invalid credentials.');
+        return res.status(401).send('Invalid credentials');
     }
-    currentUser = user;
-    res.send('Login successful.');
-});
 
-// Get Current User
-router.get('/current', (req, res) => {
-    if (!currentUser) {
-        return res.status(401).send('No user is currently logged in.');
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+        return res.status(401).send('Invalid credentials');
     }
-    res.send(currentUser);
-});
 
-// Logout
-router.post('/logout', (req, res) => {
-    currentUser = null;
-    res.send('Logout successful.');
+    const token = jwt.sign({ userId: user._id }, 'your_jwt_secret', { expiresIn: '1h' });
+    res.json({ token });
 });
 
 module.exports = router;
